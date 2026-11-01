@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tamagotchi métabolique</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    color-scheme: light;
+    --fond: #f4f1ea; --carte: #fcfcfb; --trait: #e3dfd5;
+    --encre: #1d1c1a; --encre-2: #52514e; --encre-3: #7a786f;
+    --s1: #2a78d6; --s2: #eb6834; --zone: #2a78d618; --seance: #eb683418;
+    --peau: #8fd3c0; --peau-effort: #f0a58f; --peau-hypo: #d5dcd6;
+    --vitre: #fff8e8; --vide: #e7d6cd; --muscle: #c8553d; --estomac: #e9b949;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --fond: #141413; --carte: #1f1f1d; --trait: #34332f;
+      --encre: #f0efec; --encre-2: #c3c2b7; --encre-3: #97958b;
+      --s1: #3987e5; --s2: #d95926; --zone: #3987e522; --seance: #d9592622;
+      --peau: #5fae9a; --peau-effort: #d0806a; --peau-hypo: #8b928c;
+      --vitre: #3a372d; --vide: #574a44;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--fond); color: var(--encre);
+    font: 15px/1.45 ui-rounded, "Segoe UI", system-ui, sans-serif;
+  }
+  main {
+    display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px;
+    max-width: 1280px; margin: 0 auto; padding: 16px;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  h1 { font-size: 18px; margin: 0; }
+  .carte { background: var(--carte); border: 1px solid var(--trait); border-radius: 14px; padding: 14px; }
+  .tete { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  #horloge { color: var(--encre-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  .scene { position: relative; }
+  #tama { display: block; width: min(100%, 250px); margin: 4px auto 0; }
+  #humeur { text-align: center; font-weight: 600; margin: 0; }
+  .miam { position: absolute; left: 50%; top: 66%; font-size: 30px; pointer-events: none; animation: miam .7s ease-in forwards; }
+  @keyframes miam { from { transform: translate(-50%, 0); opacity: 1; } to { transform: translate(-50%, -120px) scale(.4); opacity: 0; } }
+
+  #peau { fill: var(--peau); transition: fill .4s; }
+  [data-humeur="effort"] #peau { fill: var(--peau-effort); }
+  [data-humeur="hypo"] #peau { fill: var(--peau-hypo); }
+  .vide { fill: var(--vide); }
+  .etiquette { font-size: 10px; fill: #5b5240; text-anchor: middle; }
+  @media (prefers-color-scheme: dark) { .etiquette { fill: #d8d0bc; } }
+  #sueur { display: none; }
+  [data-humeur="effort"] #sueur { display: block; }
+  #corps, #yeux { transform-box: fill-box; transform-origin: center; }
+  #yeux { animation: cligne 5s infinite; }
+  @keyframes cligne { 0%, 95%, 100% { transform: scaleY(1); } 97.5% { transform: scaleY(.1); } }
+  #corps { animation: souffle 3.2s ease-in-out infinite; }
+  @keyframes souffle { 50% { transform: translateY(2px); } }
+  [data-humeur="effort"] #corps { animation: court .34s ease-in-out infinite; }
+  @keyframes court { 50% { transform: translateY(-10px); } }
+  [data-humeur="hypo"] #corps { animation: vacille 1.6s ease-in-out infinite; }
+  @keyframes vacille { 25% { transform: rotate(-4deg); } 75% { transform: rotate(4deg); } }
+  @media (prefers-reduced-motion: reduce) { #corps, #yeux { animation: none !important; } .miam { display: none; } }
+
+  .boutons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .large { grid-column: span 3; }
+  .moitie { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; grid-column: span 3; }
+  button {
+    font: inherit; color: var(--encre); background: var(--fond); min-height: 44px;
+    border: 1px solid var(--trait); border-radius: 10px; padding: 6px 8px; cursor: pointer;
+  }
+  button:hover { border-color: var(--encre-3); }
+  button:focus-visible { outline: 2px solid var(--s1); outline-offset: 1px; }
+  button[aria-pressed="true"] { background: var(--encre); color: var(--carte); }
+  .repas { display: flex; flex-direction: column; align-items: center; line-height: 1.2; font-size: 13px; }
+  .repas span { font-size: 22px; }
+  .vitesses { display: flex; gap: 6px; }
+  .vitesses button { flex: 1; min-width: 0; font-size: 13px; }
+
+  #explications { margin: 0; padding: 0; list-style: none; min-height: 7.5em; }
+  #explications li { padding: 4px 0 4px 12px; border-left: 3px solid var(--trait); margin-bottom: 4px; color: var(--encre-2); }
+  #explications li:first-child { border-color: var(--s1); color: var(--encre); font-weight: 600; }
+  h2 { font-size: 13px; color: var(--encre-3); font-weight: 600; margin: 0 0 6px; }
+
+  #graphes { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 10px; align-content: start; min-width: 0; }
+  .graphe { padding: 10px 12px 6px; min-width: 0; }
+  .legende { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; font-size: 13px; margin-bottom: 4px; min-height: 2.6em; align-content: flex-start; }
+  .legende b { font-weight: 600; }
+  .valeurs { display: flex; gap: 10px; color: var(--encre-2); font-variant-numeric: tabular-nums; }
+  .pastille { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  canvas { display: block; width: 100%; height: 118px; touch-action: none; }
+  footer { grid-column: 1 / -1; font-size: 12px; color: var(--encre-3); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
+</style>
+</head>
+<body>
+<main>
+  <aside>
+    <section class="carte">
+      <div class="tete"><h1>Tama</h1><span id="horloge"></span></div>
+      <div class="scene" id="scene" data-humeur="bien">
+        <svg id="tama" viewBox="0 0 240 250" role="img" aria-label="Tama, avec son foie et ses muscles visibles par transparence">
+          <defs>
+            <clipPath id="clip-foie"><path d="M78 150 q6 -22 44 -20 q30 2 26 16 q-4 12 -30 18 q-34 8 -40 -14z"/></clipPath>
+            <clipPath id="clip-jambes"><rect x="76" y="186" width="34" height="46" rx="15"/><rect x="130" y="186" width="34" height="46" rx="15"/></clipPath>
+          </defs>
+          <ellipse cx="120" cy="238" rx="66" ry="7" fill="#00000018"/>
+          <g id="corps">
+            <rect class="vide" x="60" y="170" width="120" height="70" clip-path="url(#clip-jambes)"/>
+            <rect id="niveau-muscle" fill="var(--muscle)" x="60" y="186" width="120" height="46" clip-path="url(#clip-jambes)"/>
+            <text class="etiquette" x="120" y="226">muscles</text>
+            <g id="gonfle" style="transform-box: fill-box; transform-origin: 50% 80%; transition: transform .4s">
+              <ellipse id="peau" cx="120" cy="112" rx="84" ry="88"/>
+              <ellipse cx="120" cy="156" rx="60" ry="39" fill="var(--vitre)"/>
+              <rect class="vide" x="60" y="120" width="120" height="60" clip-path="url(#clip-foie)"/>
+              <rect id="niveau-foie" x="60" y="128" width="120" height="50" clip-path="url(#clip-foie)" fill="#b0523f"/>
+              <circle id="estomac" cx="150" cy="168" r="3" fill="var(--estomac)"/>
+              <text class="etiquette" x="108" y="178">foie</text>
+              <g id="yeux" fill="#1d1c1a"><circle cx="92" cy="62" r="8"/><circle cx="148" cy="62" r="8"/></g>
+              <path id="bouche" d="" transform="translate(0 -14)" fill="none" stroke="#1d1c1a" stroke-width="4" stroke-linecap="round"/>
+            </g>
+            <g id="sueur" fill="#5aa9e6"><path d="M196 56 q8 12 0 16 q-8 -4 0 -16z"/><path d="M38 70 q6 10 0 13 q-6 -3 0 -13z"/></g>
+          </g>
+        </svg>
+      </div>
+      <p id="humeur" aria-live="polite"></p>
+    </section>
+
+    <section class="carte">
+      <div class="boutons" id="actions"></div>
+    </section>
+
+    <section class="carte">
+      <h2>En ce moment</h2>
+      <ul id="explications" aria-live="polite"></ul>
+    </section>
+
+    <section class="carte">
+      <h2>Vitesse du temps</h2>
+      <div class="vitesses" id="vitesses"></div>
+    </section>
+  </aside>
+
+  <div id="graphes"></div>
+
+  <footer>
+    <span>Modèle pédagogique simplifié d'un adulte de 70 kg. Pas un outil médical.</span>
+    <span id="autotests"></span>
+  </footer>
+</main>
+
+<script src="modele.js"></script>
+<script src="modele.test.js"></script>
+<script>
+'use strict';
+const { P, ETAT_INITIAL, REPAS, flux, avancer, manger, bouger, expliquer, triglycerides } = Modele;
+const $ = (id) => document.getElementById(id);
+
+const FENETRE = 24 * 60, PAS_MESURE = 5, DEBUT_HEURE = 8;
+const VITESSES = [['⏸ Pause', 0], ['10 min/s', 10], ['1 h/s', 60]];
+const VITESSE_JEUNE = 120;
+
+let s = ETAT_INITIAL, t = 0, vitesse = 10, reste = 0, avantJeune = 0, finJeune = null, survol = null, redessiner = true;
+const mesures = [], reperes = [], seances = [];
+
+const GRAPHES = [
+  { titre: 'Glycémie', unite: 'g/L', min: 0.6, max: 1.4, zone: [0.7, 1.1], dec: 2, series: [{ cle: 'G' }] },
+  { titre: 'Insuline', unite: 'mU/L', min: 0, max: 50, dec: 0, series: [{ cle: 'I' }] },
+  { titre: 'Glycogène', unite: '% plein', min: 0, max: 100, dec: 0, series: [{ cle: 'foie', nom: 'Foie' }, { cle: 'muscle', nom: 'Muscles' }] },
+  { titre: 'Fructose dans le foie', unite: 'g', min: 0, max: 15, dec: 1, series: [{ cle: 'fructose' }] },
+  { titre: 'Lipogenèse', unite: 'g/h', min: 0, max: 5, dec: 1, series: [{ cle: 'lipogenese' }] },
+  { titre: 'Oxydation des graisses', unite: 'g/h', min: 0, max: 30, dec: 1, series: [{ cle: 'oxydation' }] },
+  { titre: 'Triglycérides', unite: 'g/L', min: 0.6, max: 2, dec: 2, series: [{ cle: 'tg' }] },
+  { titre: 'Graisse stockée, depuis le début', unite: 'g', min: -100, max: 100, dec: 0, series: [{ cle: 'stock' }] },
+];
+
+function mesurer() {
+  const f = flux(s);
+  mesures.push({
+    t, G: s.G, I: s.I,
+    foie: 100 * s.glycogeneFoie / P.GFmax, muscle: 100 * s.glycogeneMuscle / P.GMmax,
+    fructose: s.fructoseFoie, lipogenese: f.lipogenese * 60, oxydation: f.oxydationGras * 60,
+    tg: triglycerides(s), stock: s.grasAdipeux - ETAT_INITIAL.grasAdipeux,
+  });
+  while (mesures[0].t < t - FENETRE - 60) mesures.shift();
+  redessiner = true;
+}
+
+function pas() {
+  const enSeance = s.seance > 0;
+  s = avancer(s, 1);
+  t++;
+  if (enSeance && s.seance <= 0) seances[seances.length - 1].fin = t;
+  if (t % PAS_MESURE === 0) mesurer();
+  if (finJeune !== null && t >= finJeune) arreterJeune();
+}
+
+function arreterJeune() {
+  finJeune = null;
+  vitesse = avantJeune;
+  majBoutons();
+}
+
+// Humeur du personnage : la première condition vraie gagne.
+function humeur() {
+  const ventre = s.ventreGlucose + s.ventreFructose + s.ventreGras;
+  if (s.G < 0.72) return ['hypo', 'Tama a la tête qui tourne', 'M100 116 q10 -8 20 0 t20 0'];
+  if (s.e > 0.3) return ['effort', 'Tama fait sa séance', 'M104 104 Q120 132 136 104 Z'];
+  if (ventre > 8) return ['digere', 'Tama digère', 'M100 108 Q120 120 140 108'];
+  if (s.glycogeneMuscle / P.GMmax < 0.3) return ['fatigue', 'Tama a les jambes lourdes', 'M104 114 H136'];
+  if (s.glycogeneFoie < 30) return ['faim', 'Tama a faim', 'M104 118 Q120 104 136 118'];
+  return ['bien', 'Tama va bien', 'M100 106 Q120 126 140 106'];
+}
+
+function dessinerTama() {
+  const [cle, texte, bouche] = humeur();
+  $('scene').dataset.humeur = cle;
+  if ($('humeur').textContent !== texte) $('humeur').textContent = texte;
+  $('bouche').setAttribute('d', bouche);
+
+  const hautFoie = 128, hFoie = 40, pleinF = s.glycogeneFoie / P.GFmax;
+  $('niveau-foie').setAttribute('y', hautFoie + hFoie * (1 - pleinF));
+  const stea = Math.min(1, Math.max(0, (s.grasFoie - 30) / 25)) * 100; // le foie jaunit quand il se charge en graisse
+  $('niveau-foie').style.fill = `color-mix(in srgb, #d9b44a ${stea}%, #b0523f)`;
+
+  const hautJambe = 186, hJambe = 46, pleinM = s.glycogeneMuscle / P.GMmax;
+  $('niveau-muscle').setAttribute('y', hautJambe + hJambe * (1 - pleinM));
+
+  // Variation exagérée : quelques centaines de grammes sur 12 kg ne se verraient pas.
+  const gros = 1 + Math.max(-0.08, Math.min(0.12, (s.grasAdipeux - ETAT_INITIAL.grasAdipeux) / 2000));
+  $('gonfle').style.transform = `scaleX(${gros.toFixed(3)})`;
+  $('estomac').setAttribute('r', 3 + Math.sqrt(s.ventreGlucose + s.ventreFructose + s.ventreGras) * 1.1);
+}
+
+function heure(tm) {
+  const m = tm + DEBUT_HEURE * 60;
+  return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+function majTextes() {
+  $('horloge').textContent = `Jour ${Math.floor((t + DEBUT_HEURE * 60) / 1440) + 1}, ${heure(t)}`;
+  const phrases = expliquer(s).slice(0, 3);
+  const liste = $('explications');
+  if (liste.dataset.texte !== phrases.join('|')) {
+    liste.dataset.texte = phrases.join('|');
+    liste.replaceChildren(...phrases.map((p) => Object.assign(document.createElement('li'), { textContent: p })));
+  }
+  if (finJeune !== null) $('btn-jeune').textContent = `😴 Jeûne : encore ${Math.ceil((finJeune - t) / 60)} h. Arrêter`;
+}
+
+const nombre = (x, dec) => x.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+
+function creerGraphes() {
+  for (const g of GRAPHES) {
+    const carte = document.createElement('section');
+    carte.className = 'carte graphe';
+    const legende = document.createElement('div');
+    legende.className = 'legende';
+    const titre = document.createElement('b');
+    titre.textContent = `${g.titre} (${g.unite})`;
+    const valeurs = document.createElement('span');
+    valeurs.className = 'valeurs';
+    g.spans = g.series.map((serie, i) => {
+      const bloc = document.createElement('span');
+      if (serie.nom) {
+        const p = document.createElement('i');
+        p.className = 'pastille';
+        p.style.background = `var(--s${i + 1})`;
+        bloc.append(p, serie.nom + ' ');
+      }
+      const v = document.createElement('span');
+      bloc.append(v);
+      valeurs.append(bloc);
+      return v;
+    });
+    legende.append(titre, valeurs);
+    g.canvas = document.createElement('canvas');
+    g.canvas.setAttribute('role', 'img');
+    g.canvas.setAttribute('aria-label', `Courbe : ${g.titre}, sur les dernières 24 heures simulées`);
+    g.canvas.addEventListener('pointermove', (ev) => {
+      const r = g.canvas.getBoundingClientRect();
+      const x = (ev.clientX - r.left - MARGE_G) / (r.width - MARGE_G - MARGE_D);
+      survol = Math.round(t - FENETRE * (1 - Math.min(1, Math.max(0, x))));
+      redessiner = true;
+    });
+    g.canvas.addEventListener('pointerleave', () => { survol = null; redessiner = true; });
+    carte.append(legende, g.canvas);
+    $('graphes').append(carte);
+  }
+}
+
+const MARGE_G = 30, MARGE_D = 6, MARGE_H = 8, MARGE_B = 16;
+
+function tracer(g, css) {
+  const c = g.canvas, r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  if (!r.width) return;
+  if (c.width !== Math.round(r.width * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+
+  // L'échelle garde ses bornes pédagogiques et ne s'élargit que si une valeur en sort.
+  let min = g.min, max = g.max;
+  for (const m of mesures) for (const se of g.series) { min = Math.min(min, m[se.cle]); max = Math.max(max, m[se.cle]); }
+
+  const L = r.width - MARGE_G - MARGE_D, H = r.height - MARGE_H - MARGE_B;
+  const X = (tm) => MARGE_G + L * (1 - (t - tm) / FENETRE);
+  const Y = (v) => MARGE_H + H * (1 - (v - min) / (max - min));
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(MARGE_G, 0, L, r.height);
+  ctx.clip();
+  if (g.zone) { ctx.fillStyle = css.zone; ctx.fillRect(MARGE_G, Y(g.zone[1]), L, Y(g.zone[0]) - Y(g.zone[1])); }
+  ctx.fillStyle = css.seance;
+  for (const q of seances) ctx.fillRect(X(q.debut), MARGE_H, X(q.fin ?? t) - X(q.debut), H);
+  ctx.strokeStyle = css.trait; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.font = '12px "Segoe UI Emoji", system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = css.encre3;
+  for (const e of reperes) {
+    ctx.beginPath(); ctx.moveTo(X(e.t), MARGE_H + 2); ctx.lineTo(X(e.t), MARGE_H + H); ctx.stroke();
+    ctx.fillText(e.icone, X(e.t), MARGE_H + 6);
+  }
+  ctx.setLineDash([]);
+  g.series.forEach((se, i) => {
+    ctx.strokeStyle = css[`s${i + 1}`]; ctx.lineWidth = 2; ctx.lineJoin = ctx.lineCap = 'round';
+    ctx.beginPath();
+    mesures.forEach((m, k) => ctx[k ? 'lineTo' : 'moveTo'](X(m.t), Y(m[se.cle])));
+    ctx.stroke();
+  });
+  if (survol !== null) {
+    ctx.strokeStyle = css.encre3; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(survol), MARGE_H); ctx.lineTo(X(survol), MARGE_H + H); ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.strokeStyle = css.trait; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(MARGE_G, MARGE_H + H + .5); ctx.lineTo(MARGE_G + L, MARGE_H + H + .5); ctx.stroke();
+  ctx.fillStyle = css.encre3; ctx.font = '11px ui-rounded, "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  const dec = g.dec > 1 ? 1 : 0;
+  ctx.textBaseline = 'top'; ctx.fillText(nombre(max, dec), MARGE_G - 4, MARGE_H - 2);
+  ctx.textBaseline = 'bottom'; ctx.fillText(nombre(min, dec), MARGE_G - 4, MARGE_H + H + 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  // Un repère toutes les 6 h d'horloge simulée.
+  const horloge = (tm) => tm + DEBUT_HEURE * 60;
+  for (let h = Math.ceil(horloge(t - FENETRE) / 360) * 360; h <= horloge(t); h += 360) {
+    const x = X(h - DEBUT_HEURE * 60);
+    if (x > MARGE_G + 14 && x < MARGE_G + L - 14) ctx.fillText(`${String((h / 60 % 24 + 24) % 24).padStart(2, "0")} h`, x, r.height - 2);
+  }
+
+  const cible = survol === null ? mesures[mesures.length - 1]
+    : mesures.reduce((a, b) => (Math.abs(b.t - survol) < Math.abs(a.t - survol) ? b : a), mesures[0]);
+  g.series.forEach((se, i) => { g.spans[i].textContent = cible ? nombre(cible[se.cle], g.dec) : '–'; });
+}
+
+function tracerTout() {
+  const st = getComputedStyle(document.documentElement);
+  const v = (n) => st.getPropertyValue(n).trim();
+  const css = { s1: v('--s1'), s2: v('--s2'), zone: v('--zone'), seance: v('--seance'), trait: v('--trait'), encre3: v('--encre-3') };
+  for (const g of GRAPHES) tracer(g, css);
+}
+
+function creerBoutons() {
+  const actions = $('actions');
+  for (const repas of Object.values(REPAS)) {
+    const b = document.createElement('button');
+    b.className = 'repas';
+    b.innerHTML = `<span aria-hidden="true">${repas.icone}</span>${repas.nom}`;
+    b.title = `${repas.glucose} g de glucose, ${repas.fructose} g de fructose, ${repas.gras} g de graisses`;
+    b.addEventListener('click', () => nourrir(repas));
+    actions.append(b);
+  }
+  const ligne = document.createElement('div');
+  ligne.className = 'moitie';
+  const seance = Object.assign(document.createElement('button'), { textContent: '🏃 Séance de 1 h' });
+  seance.addEventListener('click', () => {
+    if (s.seance <= 0) seances.push({ debut: t });
+    s = bouger(s);
+  });
+  const jeune = Object.assign(document.createElement('button'), { id: 'btn-jeune', textContent: '😴 Jeûner 24 h' });
+  jeune.addEventListener('click', () => {
+    if (finJeune !== null) return arreterJeune();
+    avantJeune = vitesse || 10;
+    finJeune = t + 1440;
+    vitesse = VITESSE_JEUNE;
+    majBoutons();
+  });
+  ligne.append(seance, jeune);
+  actions.append(ligne);
+
+  for (const [nom, v] of VITESSES) {
+    const b = Object.assign(document.createElement('button'), { textContent: nom });
+    b.dataset.v = v;
+    b.addEventListener('click', () => {
+      finJeune = null;
+      vitesse = v;
+      majBoutons();
+    });
+    $('vitesses').append(b);
+  }
+  const zero = Object.assign(document.createElement('button'), { textContent: '↺', title: 'Recommencer' });
+  zero.setAttribute('aria-label', 'Recommencer');
+  zero.style.flex = '0 0 44px';
+  zero.addEventListener('click', () => location.reload());
+  $('vitesses').append(zero);
+}
+
+function nourrir(repas) {
+  const apres = manger(s, repas);
+  if (!apres) { $('humeur').textContent = 'Tama ne peut plus rien avaler'; return; }
+  s = apres;
+  reperes.push({ t, icone: repas.icone });
+  if (finJeune !== null) arreterJeune();
+  const m = Object.assign(document.createElement('span'), { className: 'miam', textContent: repas.icone });
+  m.setAttribute('aria-hidden', 'true');
+  m.addEventListener('animationend', () => m.remove());
+  $('scene').append(m);
+}
+
+function majBoutons() {
+  document.querySelectorAll('#vitesses button[data-v]').forEach((b) =>
+    b.setAttribute('aria-pressed', finJeune === null && Number(b.dataset.v) === vitesse));
+  if (finJeune === null) $('btn-jeune').textContent = '😴 Jeûner 24 h';
+}
+
+let precedent = performance.now();
+function boucle(maintenant) {
+  // Plafond à 100 ms : un onglet resté caché ne doit pas rattraper des jours d'un coup.
+  reste += Math.min(0.1, (maintenant - precedent) / 1000) * vitesse;
+  precedent = maintenant;
+  while (reste >= 1) { pas(); reste--; }
+  dessinerTama();
+  majTextes();
+  if (redessiner) { tracerTout(); redessiner = false; }
+  requestAnimationFrame(boucle);
+}
+
+creerGraphes();
+creerBoutons();
+majBoutons();
+mesurer();
+const resultats = autotest(Modele);
+const reussis = resultats.filter((r) => r.ok).length;
+$('autotests').textContent = `Auto-tests du modèle : ${reussis}/${resultats.length}`;
+resultats.filter((r) => !r.ok).forEach((r) => console.error('Auto-test en échec :', r.nom));
+new ResizeObserver(() => { redessiner = true; }).observe($('graphes'));
+requestAnimationFrame(boucle);
+
+// Pour vérifier la page sans attendre le temps réel, depuis la console.
+window.tama = { avancer: (n) => { for (let i = 0; i < n; i++) pas(); redessiner = true; }, etat: () => s };
+</script>
+</body>
+</html>
