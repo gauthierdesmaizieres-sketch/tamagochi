@@ -3,7 +3,7 @@
   'use strict';
 
   function autotest(M) {
-    const { ETAT_INITIAL: E0, REPAS, flux, avancer, manger, bouger, expliquer, triglycerides } = M;
+    const { ETAT_INITIAL: E0, REPAS, MEDICAMENTS, flux, avancer, manger, bouger, expliquer, triglycerides, prendre } = M;
 
     // Fait tourner `duree` minutes et collecte le min et le max de chaque valeur suivie.
     function simuler(s, duree, suivi = (x) => x) {
@@ -14,6 +14,13 @@
     const glycemie = (x) => x.G, insuline = (x) => x.I;
     const fructoseSeul = { glucose: 0, fructose: 60, gras: 0 };
     const glucoseSeul = { glucose: 60, fructose: 0, gras: 0 };
+    // Une prise, puis `attente` minutes pour que le médicament soit au plus haut.
+    const sous = (id, attente) => simuler(id ? prendre(E0, id) : E0, attente).fin;
+    const traiter = (id, jours) => {
+      let s = E0;
+      for (let t = 0; t < jours * 1440; t++) s = avancer(t % 1440 ? s : prendre(s, id), 1);
+      return s;
+    };
 
     const verifications = [
       ['le glycogène hépatique baisse pendant un jeûne', () => {
@@ -76,6 +83,32 @@
         const vide = simuler(E0, 48 * 60).fin;
         const r = simuler(bouger(bouger(bouger(vide))), 170, glycemie);
         return r.min < 0.72 && r.min > 0.45;
+      }],
+      ['un médicament monte puis s\'élimine selon sa demi-vie', () => {
+        const pic = simuler(prendre(E0, 'metformine'), 600, (x) => x.c_metformine);
+        const tPic = pic.hist.indexOf(pic.max);
+        const apres = pic.hist[tPic + MEDICAMENTS.metformine.demiVie];
+        return tPic > 60 && tPic < 240 && apres > 0.45 * pic.max && apres < 0.6 * pic.max;
+      }],
+      ['la metformine freine la néoglucogenèse sans hypoglycémie', () => {
+        const r = simuler(prendre(E0, 'metformine'), 24 * 60, glycemie);
+        return flux(sous('metformine', 150)).neoglucogenese < 0.8 * flux(sous(null, 150)).neoglucogenese && r.min > 0.8;
+      }],
+      ['le GLP-1 aplatit le pic de glycémie après un repas', () => {
+        const pic = (id) => simuler(manger(sous(id, 600), REPAS.pates), 300, glycemie).max;
+        return pic('glp1') < pic(null) - 0.1;
+      }],
+      ['le SGLT2 fait perdre du glucose dans les urines sans hypoglycémie', () => {
+        const r = simuler(prendre(E0, 'sglt2'), 24 * 60, glycemie);
+        return flux(sous('sglt2', 150)).glycosurie * 1440 > 20 && r.min > 0.75 && r.fin.G < simuler(E0, 24 * 60).fin.G;
+      }],
+      ['le fibrate abaisse le pic de triglycérides après un repas gras', () => {
+        const pic = (id) => simuler(manger(sous(id, 300), REPAS.fromage), 360, triglycerides).max;
+        return pic('fibrate') < pic(null) - 0.2;
+      }],
+      ['une statine quotidienne baisse le LDL de 25 à 50 % en deux semaines', () => {
+        const ldl = traiter('statine', 14).ldl / E0.ldl;
+        return ldl > 0.5 && ldl < 0.75 && Math.abs(simuler(E0, 1440).fin.ldl - E0.ldl) < 0.01;
       }],
       ['il y a toujours une explication', () =>
         [E0, simuler(E0, 3000).fin, manger(E0, REPAS.soda), bouger(E0)].every((s) => expliquer(s).length > 0)],

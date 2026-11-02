@@ -77,6 +77,7 @@
   button[aria-pressed="true"] { background: var(--encre); color: var(--carte); }
   .repas { display: flex; flex-direction: column; align-items: center; line-height: 1.2; font-size: 13px; }
   .repas span { font-size: 22px; }
+  .repas small { font-size: 11px; opacity: .75; font-variant-numeric: tabular-nums; }
   .vitesses { display: flex; gap: 6px; }
   .vitesses button { flex: 1; min-width: 0; font-size: 13px; }
 
@@ -133,6 +134,11 @@
     </section>
 
     <section class="carte">
+      <h2>Médicaments, une prise par jour</h2>
+      <div class="boutons" id="medicaments"></div>
+    </section>
+
+    <section class="carte">
       <h2>En ce moment</h2>
       <ul id="explications" aria-live="polite"></ul>
     </section>
@@ -155,7 +161,7 @@
 <script src="modele.test.js"></script>
 <script>
 'use strict';
-const { P, ETAT_INITIAL, REPAS, flux, avancer, manger, bouger, expliquer, triglycerides } = Modele;
+const { P, ETAT_INITIAL, REPAS, MEDICAMENTS, flux, effet, prendre, avancer, manger, bouger, expliquer, triglycerides } = Modele;
 const $ = (id) => document.getElementById(id);
 
 const FENETRE = 24 * 60, PAS_MESURE = 5, DEBUT_HEURE = 8;
@@ -164,6 +170,7 @@ const VITESSE_JEUNE = 120;
 
 let s = ETAT_INITIAL, t = 0, vitesse = 10, reste = 0, avantJeune = 0, finJeune = null, survol = null, redessiner = true;
 const mesures = [], reperes = [], seances = [];
+const traitements = {}; // médicament → minute de la première prise ; une prise toutes les 24 h ensuite
 
 const GRAPHES = [
   { titre: 'Glycémie', unite: 'g/L', min: 0.6, max: 1.4, zone: [0.7, 1.1], dec: 2, series: [{ cle: 'G' }] },
@@ -174,6 +181,7 @@ const GRAPHES = [
   { titre: 'Oxydation des graisses', unite: 'g/h', min: 0, max: 30, dec: 1, series: [{ cle: 'oxydation' }] },
   { titre: 'Triglycérides', unite: 'g/L', min: 0.6, max: 2, dec: 2, series: [{ cle: 'tg' }] },
   { titre: 'Graisse stockée, depuis le début', unite: 'g', min: -100, max: 100, dec: 0, series: [{ cle: 'stock' }] },
+  { titre: 'Cholestérol LDL', unite: 'g/L', min: 0.6, max: 1.4, dec: 2, series: [{ cle: 'ldl' }] },
 ];
 
 function mesurer() {
@@ -182,7 +190,7 @@ function mesurer() {
     t, G: s.G, I: s.I,
     foie: 100 * s.glycogeneFoie / P.GFmax, muscle: 100 * s.glycogeneMuscle / P.GMmax,
     fructose: s.fructoseFoie, lipogenese: f.lipogenese * 60, oxydation: f.oxydationGras * 60,
-    tg: triglycerides(s), stock: s.grasAdipeux - ETAT_INITIAL.grasAdipeux,
+    tg: triglycerides(s), stock: s.grasAdipeux - ETAT_INITIAL.grasAdipeux, ldl: s.ldl,
   });
   while (mesures[0].t < t - FENETRE - 60) mesures.shift();
   redessiner = true;
@@ -190,6 +198,7 @@ function mesurer() {
 
 function pas() {
   const enSeance = s.seance > 0;
+  for (const [id, debut] of Object.entries(traitements)) if (t > debut && (t - debut) % 1440 === 0) s = prendre(s, id);
   s = avancer(s, 1);
   t++;
   if (enSeance && s.seance <= 0) seances[seances.length - 1].fin = t;
@@ -247,6 +256,7 @@ function majTextes() {
     liste.dataset.texte = phrases.join('|');
     liste.replaceChildren(...phrases.map((p) => Object.assign(document.createElement('li'), { textContent: p })));
   }
+  for (const b of $('medicaments').children) b.lastChild.textContent = `effet ${Math.round(100 * effet(s, b.dataset.id))} %`;
   if (finJeune !== null) $('btn-jeune').textContent = `😴 Jeûne : encore ${Math.ceil((finJeune - t) / 60)} h. Arrêter`;
 }
 
@@ -389,6 +399,21 @@ function creerBoutons() {
   });
   ligne.append(seance, jeune);
   actions.append(ligne);
+
+  for (const [id, m] of Object.entries(MEDICAMENTS)) {
+    const b = document.createElement('button');
+    b.className = 'repas';
+    b.dataset.id = id;
+    b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = `<span aria-hidden="true">${m.icone}</span>${m.nom}<small></small>`;
+    b.title = `${m.nom}, ${m.action}. Demi-vie ${m.demiVie / 60} h. Cliquer arrête ou reprend le traitement.`;
+    b.addEventListener('click', () => {
+      if (id in traitements) delete traitements[id];
+      else { traitements[id] = t; s = prendre(s, id); reperes.push({ t, icone: m.icone }); }
+      b.setAttribute('aria-pressed', id in traitements);
+    });
+    $('medicaments').append(b);
+  }
 
   for (const [nom, v] of VITESSES) {
     const b = Object.assign(document.createElement('button'), { textContent: nom });

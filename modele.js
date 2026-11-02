@@ -16,6 +16,24 @@
     TGbase: 0.8,       // g/L
     dureeSeance: 60,   // min
     ventreMax: 250,    // g, au-delà Tama refuse de manger
+    LDLbase: 1.3,      // g/L sans traitement
+    kLDL: Math.LN2 / (3 * 1440), // /min, une particule LDL vit environ 3 jours
+    CE50: 0.5,         // concentration (en doses) qui donne la moitié de l'effet maximal
+  };
+
+  // Pharmacocinétique à un compartiment : absorption (ka, /min) puis élimination selon la demi-vie (min).
+  // Les doses sont illustratives : une prise ajoute 1 au dépôt intestinal.
+  const MEDICAMENTS = {
+    metformine: { nom: 'Metformine', icone: '💊', ka: 1 / 60, demiVie: 5 * 60,
+      action: 'freine la néoglucogenèse du foie' },
+    glp1: { nom: 'GLP-1', icone: '💉', ka: 1 / 300, demiVie: 13 * 60,
+      action: 'type liraglutide : ralentit l\'estomac et amplifie l\'insuline quand le sucre monte' },
+    sglt2: { nom: 'SGLT2', icone: '💧', ka: 1 / 40, demiVie: 13 * 60,
+      action: 'type dapagliflozine : le rein laisse partir du glucose dans les urines' },
+    fibrate: { nom: 'Fibrate', icone: '🧪', ka: 1 / 90, demiVie: 20 * 60,
+      action: 'type fénofibrate : active la lipoprotéine lipase, moins de VLDL' },
+    statine: { nom: 'Statine', icone: '❤️', ka: 1 / 40, demiVie: 20 * 60,
+      action: 'type atorvastatine : bloque l\'HMG-CoA réductase, le foie capte plus de LDL' },
   };
 
   const ETAT_INITIAL = Object.freeze({
@@ -25,7 +43,12 @@
     glycogeneFoie: 70, glycogeneMuscle: 300,
     grasFoie: 30, tgSang: 0.33, grasAdipeux: 12000,
     seance: 0, e: 0,
+    ldl: P.LDLbase,
+    ...Object.fromEntries(Object.keys(MEDICAMENTS).flatMap((id) => [[`d_${id}`, 0], [`c_${id}`, 0]])),
   });
+
+  // Part de l'effet maximal, de 0 à 1 (loi Emax).
+  const effet = (s, id) => s[`c_${id}`] / (s[`c_${id}`] + P.CE50);
 
   // Repas en grammes. Le soda est du saccharose : moitié glucose, moitié fructose.
   const REPAS = {
@@ -41,10 +64,11 @@
     const ix = insuline / (insuline + 60); // action de l'insuline, de 0 à 1
     const rF = s.glycogeneFoie / P.GFmax;
     const rM = s.glycogeneMuscle / P.GMmax;
+    const vidange = 1 - 0.5 * effet(s, 'glp1'); // le GLP-1 ralentit la vidange de l'estomac
 
-    const absGlucose = 1.2 * s.ventreGlucose / (s.ventreGlucose + 15);
-    const absFructose = 1.0 * s.ventreFructose / (s.ventreFructose + 10);
-    const absGras = 0.2 * s.ventreGras / (s.ventreGras + 15);
+    const absGlucose = vidange * 1.2 * s.ventreGlucose / (s.ventreGlucose + 15);
+    const absFructose = vidange * 1.0 * s.ventreFructose / (s.ventreFructose + 10);
+    const absGras = vidange * 0.2 * s.ventreGras / (s.ventreGras + 15);
 
     // Le fructose est phosphorylé par le foie sans contrôle de l'insuline ; le partage dépend du remplissage du foie.
     const fructolyse = 0.1 * s.fructoseFoie;
@@ -58,7 +82,7 @@
     const glucoseVersGras = 0.4 * ix * rF ** 8; // négligeable tant que le foie n'est pas plein
     const contreRegulation = 15 * Math.max(0, 0.8 - G);
     const glycogenolyse = (0.07 * (1 + contreRegulation) * (1 - ix) ** 4 + 0.38 * e) * s.glycogeneFoie / (s.glycogeneFoie + 15);
-    const neoglucogenese = 0.055 + 0.04 * (1 - rF);
+    const neoglucogenese = (0.055 + 0.04 * (1 - rF)) * (1 - 0.4 * effet(s, 'metformine'));
 
     const cerveau = 0.094 * G / (G + 0.1) * (0.6 + 0.4 * Math.min(1, rF / 0.3)); // foie vide : les cétones remplacent une partie du glucose
     const captageInsuline = 2.0 * ix * G / 0.9;
@@ -76,29 +100,33 @@
     const glucidesRepos = cerveau + captageBase + captageInsuline - stockageMuscle;
     const oxydationGras = Math.max(0.005, (P.repos - 4 * glucidesRepos) / 9) + P.effort * e * (1 - partGlucides) / 9;
 
+    // Seuil rénal abaissé : même à glycémie normale, une partie du glucose filtré n'est plus réabsorbée.
+    const glycosurie = 0.12 * effet(s, 'sglt2') * Math.max(0, G - 0.4);
+
     const lipogenese = (fructoseVersGras + glucoseVersGras) * P.glucidesVersGras;
-    const vldl = 0.00067 * s.grasFoie;
-    const clairanceTG = 0.06 * s.tgSang;
+    const vldl = 0.00067 * s.grasFoie * (1 - 0.3 * effet(s, 'fibrate'));
+    const clairanceTG = 0.06 * s.tgSang * (1 + effet(s, 'fibrate'));
+    const recepteursLDL = 1 + 0.8 * effet(s, 'statine'); // moins de cholestérol fabriqué : le foie expose plus de récepteurs
 
     return {
       ix, absGlucose, absFructose, absGras, fructolyse, fructoseVersGlycogene, fructoseVersGlucose,
       stockageFoie, glucoseVersGras, glycogenolyse, neoglucogenese, cerveau,
       captageInsuline, captageBase, captageEffort, stockageMuscle, glycogenolyseMuscle,
-      oxydationGras, lipogenese, vldl, clairanceTG,
+      oxydationGras, lipogenese, vldl, clairanceTG, glycosurie, recepteursLDL,
     };
   }
 
   function derivees(s) {
     const f = flux(s);
     const secretion = 88 * s.G ** 8 / (1.2 ** 8 + s.G ** 8);
-    const incretines = 1 + 0.6 * f.absGlucose / (f.absGlucose + 0.4);
+    const incretines = (1 + 0.6 * f.absGlucose / (f.absGlucose + 0.4)) * (1 + effet(s, 'glp1'));
     const adrenaline = 1 - 0.7 * s.e;
-    return {
+    const d = {
       ventreGlucose: -f.absGlucose,
       ventreFructose: -f.absFructose,
       ventreGras: -f.absGras,
       G: (f.absGlucose + f.fructoseVersGlucose + f.glycogenolyse + f.neoglucogenese
-        - f.cerveau - f.captageBase - f.captageInsuline - f.captageEffort - f.stockageFoie - f.glucoseVersGras) / P.Vglucose,
+        - f.cerveau - f.captageBase - f.captageInsuline - f.captageEffort - f.stockageFoie - f.glucoseVersGras - f.glycosurie) / P.Vglucose,
       I: 0.12 * (secretion * incretines * adrenaline - s.I),
       fructoseFoie: f.absFructose - f.fructolyse,
       glycogeneFoie: f.stockageFoie + f.fructoseVersGlycogene - f.glycogenolyse,
@@ -108,7 +136,13 @@
       grasAdipeux: f.clairanceTG - f.oxydationGras - P.tampon,
       seance: s.seance > 0 ? -1 : 0,
       e: ((s.seance > 0 ? 1 : 0) - s.e) / 3,
+      ldl: P.kLDL * (P.LDLbase - s.ldl * f.recepteursLDL),
     };
+    for (const [id, m] of Object.entries(MEDICAMENTS)) {
+      d[`d_${id}`] = -m.ka * s[`d_${id}`];
+      d[`c_${id}`] = m.ka * s[`d_${id}`] - Math.LN2 / m.demiVie * s[`c_${id}`];
+    }
+    return d;
   }
 
   function combine(s, d, h) {
@@ -142,6 +176,8 @@
     return { ...s, seance: s.seance + P.dureeSeance };
   }
 
+  const prendre = (s, id) => ({ ...s, [`d_${id}`]: s[`d_${id}`] + 1 });
+
   // Triglycérides affichés : le plancher à jeun n'est pas simulé, seul l'excédent l'est.
   const triglycerides = (s) => P.TGbase + s.tgSang / P.Vplasma;
 
@@ -151,6 +187,11 @@
     const phrases = [];
     if (s.e > 0.3) phrases.push('Séance : les muscles brûlent leur glycogène et l\'insuline s\'efface.');
     if (s.G < 0.72) phrases.push('Glycémie basse : le corps sécrète du glucagon et le foie envoie tout ce qu\'il peut.');
+    if (effet(s, 'metformine') > 0.2) phrases.push('Metformine : le foie fabrique moins de glucose neuf. Chez Tama, en bonne santé, la glycémie bouge à peine.');
+    if (effet(s, 'glp1') > 0.2) phrases.push('GLP-1 : l\'estomac se vide lentement, le pancréas répond plus fort au sucre.');
+    if (f.glycosurie > 0.01) phrases.push('SGLT2 bloqué : le rein laisse filer du glucose dans les urines.');
+    if (effet(s, 'fibrate') > 0.2) phrases.push('Fibrate : les triglycérides quittent le sang plus vite.');
+    if (effet(s, 'statine') > 0.2) phrases.push('Statine : le foie fabrique moins de cholestérol et capte plus de LDL. Plein effet en quelques semaines.');
     if (f.absFructose > 0.05) phrases.push('Le fructose file droit au foie, sans passer par l\'insuline.');
     if (f.lipogenese > 0.03) phrases.push('Lipogenèse active : le foie transforme le surplus en graisse.');
     if (f.absGlucose > 0.1) phrases.push('Le glucose du repas passe de l\'intestin au sang.');
@@ -165,7 +206,7 @@
     return phrases;
   }
 
-  const api = { P, ETAT_INITIAL, REPAS, flux, avancer, manger, bouger, expliquer, triglycerides };
+  const api = { P, ETAT_INITIAL, REPAS, MEDICAMENTS, flux, effet, prendre, avancer, manger, bouger, expliquer, triglycerides };
   if (typeof module !== 'undefined') module.exports = api;
   else racine.Modele = api;
 })(this);
